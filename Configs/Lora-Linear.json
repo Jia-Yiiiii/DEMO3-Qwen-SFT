@@ -1,0 +1,28 @@
+{
+    "train_path": "./data/train.json",
+    "dev_path": "./data/dev.json",
+    "test_path": "./data/test.json",
+    "model_name": "Qwen2.5-7B",
+    "model_path": "./model/Qwen2.5-7B",
+    "batch_size": 4,
+    "patience": 10,
+    "dropout": 0.1,
+    "epochs": 3,
+    "learning_rate": 2e-05,
+    "cache_dir": "./model",
+    "max_length": 512,
+    "output_dir": "../lora_weights/all_linear",
+    "trained_save_root_path": "./logs",
+    "lora_r": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "lora_target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+    ]
+}

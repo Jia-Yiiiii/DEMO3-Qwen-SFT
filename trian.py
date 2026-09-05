@@ -1,0 +1,337 @@
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
+from peft import AutoPeftModelForCausalLM, PeftModel
+from torch.utils.data import DataLoader
+from transformers import get_scheduler
+from data_process import MyDataset
+from Config import Load_config
+from Utils import get_Model, get_trained_model
+from tqdm import tqdm
+import swanlab
+from Utils import get_label_entities, get_pred_entities, get_metrics
+from accelerate import Accelerator
+from torch.optim import AdamW
+import os
+import argparse
+
+#参考HUGGING-FACE的trainer框架
+class Trainer:
+    def __init__(self, config, model):
+        self.model = model
+        self.config = config
+        self.accelerator = Accelerator()
+        self.device = self.accelerator.device
+        self.tokenizer = AutoTokenizer.from_pretrained(config.model_path)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        self.dev_data = MyDataset.read_data(config.dev_path)
+        self.train_data = MyDataset.read_data(config.train_path)
+        self.test_data = MyDataset.read_data(config.test_path)
+
+        dev_cfg = {"max_len": config.max_length, "data_path": config.dev_path}
+        train_cfg = {"max_len": config.max_length, "data_path": config.train_path}
+        test_cfg = {"max_len": config.max_length, "data_path": config.test_path}
+
+        self.dev_dataset = MyDataset(dev_cfg, self.tokenizer)
+        self.train_dataset = MyDataset(train_cfg, self.tokenizer)
+        self.test_dataset = MyDataset(test_cfg, self.tokenizer)
+
+        self.dev_dataloader = DataLoader(
+            self.dev_dataset,
+            batch_size=config.batch_size,
+            shuffle=False,
+            collate_fn=self.dev_dataset.collate_fn
+        )
+
+        self.train_dataloader = DataLoader(
+            self.train_dataset,
+            batch_size=config.batch_size,
+            shuffle=True,
+            collate_fn=self.train_dataset.collate_fn
+        )
+
+        self.test_dataloader = DataLoader(
+            self.test_dataset,
+            batch_size=config.batch_size,
+            shuffle=False,
+            collate_fn=self.test_dataset.collate_fn
+        )
+
+        os.makedirs(config.output_dir, exist_ok=True)
+        self.best_f1 = 0.0
+        self.patience = getattr(config, 'patience')
+        self.counts = 0
+
+    def train(self):
+        config = self.config
+        device = self.device
+        model = self.model
+
+        swanlab.init(
+            project="Qwen-NER-SFT",
+            config=vars(config)
+        )
+
+        train_dataloader = self.train_dataloader
+        dev_dataloader = self.dev_dataloader
+
+        optimizer = AdamW(
+            model.parameters(),
+            lr=2e-4,
+            weight_decay=0.01
+        )
+
+        all_step = len(train_dataloader) * config.epochs
+        warmup_steps = int(all_step * 0.1)
+        scheduler = get_scheduler(
+            "cosine",
+            optimizer,
+            warmup_steps,
+            all_step,
+        )
+
+        for epoch in range(config.epochs):
+            model.train()
+            total_loss = 0.0
+            model.config.use_cache = False
+
+            progress_bar = tqdm(
+                train_dataloader,
+                disable=not self.accelerator.is_main_process,
+                desc=f"Epoch {epoch + 1}/{self.config.epochs} [Train]",
+                position=0,
+                leave=True
+            )
+
+            for step, batch in enumerate(progress_bar):
+                model_inputs = {
+                    "input_ids": batch["input_ids"].to(device),
+                    "attention_mask": batch["attention_mask"].to(device),
+                    "labels": batch["labels"].to(device),
+                }
+
+                outputs = model(**model_inputs)
+                loss = outputs.loss
+                self.accelerator.backward(loss)
+
+                # 梯度裁剪
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                self.accelerator.clip_grad_norm_(trainable_params, 1.0)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                total_loss += loss.item()
+                progress_bar.set_postfix({"loss": loss.item()})
+
+                if (step + 1) % 50 == 0:
+                    swanlab.log({
+                        "train/loss_step": loss.item(),
+                        "train/lr": scheduler.get_last_lr()[0],
+                    })
+
+                del loss, outputs
+                torch.cuda.empty_cache()
+
+            avg_loss = total_loss / len(train_dataloader)
+
+            swanlab.log({"train/loss_epoch": avg_loss})
+            print(f"[Train] Epoch {epoch + 1} finished. Avg Loss: {avg_loss:.4f}")
+
+            dev_loss, dev_f1, dev_precision, dev_recall = self.evaluate(
+                epoch=epoch,
+                model=model,
+                dataLoader=dev_dataloader,
+                is_test=False
+            )
+
+            if dev_f1 > self.best_f1:
+                self.best_f1 = dev_f1
+                self.counts = 0
+                print(f"[Dev] New best F1: {self.best_f1:.4f}, saving model to {config.output_dir}")
+                unwrapped_model = self.accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(config.output_dir)
+                self.accelerator.wait_for_everyone()
+            else:
+                self.counts += 1
+                if self.counts >= self.patience:
+                    print(f"Early stopping triggered at epoch {epoch + 1}")
+                    break
+
+
+        print("Training Finished. Best F1:", self.best_f1)
+        swanlab.finish()
+
+    def evaluate(self, epoch, model, dataLoader=None, is_test=False):
+        config = self.config
+        device = self.device
+
+        if dataLoader is None:
+            dataLoader = self.test_dataloader if is_test else self.dev_dataloader
+
+        desc = "Test" if is_test else "Dev"
+
+        if is_test:
+            model = get_trained_model(config)
+            model = model.to(device)
+
+        model.eval()
+        model.config.use_cache = True
+
+        avg_loss = None
+        if not is_test:
+            total_loss = 0.0
+            with torch.no_grad():
+                loss_bar = tqdm(
+                    dataLoader,
+                    desc=f"Epoch {epoch + 1}/{config.epochs} [{desc} Loss]",
+                    position=0,
+                    leave=True
+                )
+                for batch in loss_bar:
+                    model_inputs = {
+                        "input_ids": batch["input_ids"].to(device),
+                        "attention_mask": batch["attention_mask"].to(device),
+                        "labels": batch["labels"].to(device),
+                    }
+
+                    outputs = model(**model_inputs)
+                    loss = outputs.loss
+                    total_loss += loss.item()
+                    loss_bar.set_postfix({"loss": loss.item()})
+                    swanlab.log({f"{desc}/loss_step": loss.item()}, step=epoch)
+
+                    del outputs
+                    torch.cuda.empty_cache()
+
+            avg_loss = total_loss / len(dataLoader)
+
+        all_preds = []
+        all_labels = []
+        self.tokenizer.padding_side = "left"
+
+        with torch.no_grad():
+            gen_bar = tqdm(
+                dataLoader,
+                desc=f"Epoch {epoch + 1}/{config.epochs} [{desc} Gen]",
+                position=0,
+                leave=True
+            )
+            for batch in gen_bar:
+                generated = model.generate(
+                    input_ids=batch["prompt_ids"].to(device),
+                    attention_mask=batch["prompt_attention_mask"].to(device),
+                    max_new_tokens=128,
+                    do_sample=False,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+
+                input_len = batch["prompt_ids"].shape[1]
+                generated = generated[:, input_len:]
+                pred_texts = self.tokenizer.batch_decode(generated, skip_special_tokens=True)
+
+                labels_ids = batch["labels"].clone()
+                labels_ids[labels_ids == -100] = self.tokenizer.pad_token_id
+                gold_texts = self.tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
+
+                for pred, gold in zip(pred_texts, gold_texts):
+                    pred_entities = get_pred_entities(pred)
+                    gold_entities = get_label_entities(gold)
+                    all_preds.append(pred_entities)
+                    all_labels.append(gold_entities)
+
+        self.tokenizer.padding_side = "right"
+
+        metrics = get_metrics(all_preds, all_labels)
+        precision = metrics["precision"]
+        recall = metrics["recall"]
+        f1 = metrics["f1"]
+
+        if not is_test:
+            print(
+                f"[{desc}] Epoch {epoch + 1} | Loss: {avg_loss:.4f} | F1: {f1:.4f} | P: {precision:.4f} | R: {recall:.4f}")
+        else:
+            print(f"[{desc}] F1: {f1:.4f} | P: {precision:.4f} | R: {recall:.4f}")
+
+        log_dict = {
+            f"{desc}/precision": precision,
+            f"{desc}/recall": recall,
+            f"{desc}/f1": f1,
+        }
+        if not is_test:
+            log_dict[f"{desc}/loss_epoch"] = avg_loss
+
+        swanlab.log(log_dict, step=epoch)
+
+        return avg_loss, f1, precision, recall
+
+    def evaluate_test(self,epoch=None):
+        if epoch is None:
+            epoch = self.config.epochs
+        _, _, _, _ = self.evaluate(
+            epoch=epoch,
+            model=None,
+            dataLoader=self.test_dataloader,
+            is_test=True
+        )
+
+    def predict_sentence(self, sentence, max_new_tokens=128):
+        model = get_trained_model(self.config)
+        model = model.to(self.device)
+        model.eval()
+        model.config.use_cache = True
+        prompt = "Extract entities from the following sentences:\n" + sentence + "\n"
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=self.config.max_length,
+        )
+
+        input_ids = inputs["input_ids"].to(self.device)
+        attention_mask = inputs["attention_mask"].to(self.device)
+
+        with torch.no_grad():
+            generated = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=self.tokenizer.eos_token_id,
+            )
+
+
+        gen_ids = generated[:, input_ids.shape[1]:]
+        pred_text = self.tokenizer.decode(
+            gen_ids[0],
+            skip_special_tokens=True
+        )
+
+        return pred_text
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="DEMO3")
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default="./Configs/Lora-Attention.json",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["train", "eval", "predict"],
+        required=True,
+    )
+    args = parser.parse_args()
+    config = Load_config(args.config_path)
+    model = get_Model(config)
+    trainer = Trainer(config, model)
+    if args.mode == "train":
+        trainer.train()
+    elif args.mode == "eval":
+        trainer.evaluate_test()
+    elif args.mode == "predict":
+        text = input("请输入语句: ")
+        result = trainer.predict_sentence(sentence=text)
+        print(result)
