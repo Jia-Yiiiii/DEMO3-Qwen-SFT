@@ -3,9 +3,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 from peft import AutoPeftModelForCausalLM, PeftModel
 from torch.utils.data import DataLoader
 from transformers import get_scheduler
-from data_process import MyDataset
+from dataset import MyDataset
 from Config import Load_config
-from Utils import get_Model, get_trained_model
+from Utils import load_model, get_trained_model
 from tqdm import tqdm
 import swanlab
 from Utils import get_label_entities, get_pred_entities, get_metrics
@@ -13,14 +13,17 @@ from accelerate import Accelerator
 from torch.optim import AdamW
 import os
 import argparse
+import bitsandbytes as bnb
 
 #参考HUGGING-FACE的trainer框架
 class Trainer:
     def __init__(self, config, model):
         self.model = model
         self.config = config
-        self.accelerator = Accelerator()
+        self.accelerator = Accelerator(mixed_precision="bf16")
         self.device = self.accelerator.device
+        self.optimizer=None
+        self.scheduler=None
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_path)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -63,6 +66,42 @@ class Trainer:
         self.patience = getattr(config, 'patience')
         self.counts = 0
 
+    def create_optimizer_and_scheduler(self,num_training_steps:int)-> None:
+        self.create_optimizer()
+        self.create_scheduler(num_training_steps=num_training_steps)
+
+    def create_optimizer(self,model=None):
+        if self.config.train_mode=="qlora":
+            self.optimizer = bnb.optim.AdamW8bit(
+                self.model.parameters(),
+                lr=self.config.learning_rate,
+                weight_decay=self.config.weight_decay,
+
+            )
+        else:
+            self.optimizer = torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.config.learning_rate,
+                weight_decay=self.config.weight_decay,
+            )
+        return self.optimizer
+
+
+    def create_scheduler(self,num_trianing_steps,optimizer=None):
+        warmup_steps = self.config.warmup_steps  # 或 int(num_training_steps * self.config.warmup_ratio)
+        self.scheduler = get_scheduler(
+            name="cosine",
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=num_trianing_steps,
+        )
+        return self.scheduler
+
+    def compute_loss(self, model, inputs):
+        outputs=model(**inputs)
+        return outputs.loss
+
+
     def train(self):
         config = self.config
         device = self.device
@@ -75,21 +114,8 @@ class Trainer:
 
         train_dataloader = self.train_dataloader
         dev_dataloader = self.dev_dataloader
-
-        optimizer = AdamW(
-            model.parameters(),
-            lr=2e-4,
-            weight_decay=0.01
-        )
-
-        all_step = len(train_dataloader) * config.epochs
-        warmup_steps = int(all_step * 0.1)
-        scheduler = get_scheduler(
-            "cosine",
-            optimizer,
-            warmup_steps,
-            all_step,
-        )
+        total_steps = len(self.train_dataloader) * self.config.epochs // self.config.gradient_accumulation_steps
+        self.create_optimizer_and_scheduler(total_steps)
 
         for epoch in range(config.epochs):
             model.train()
@@ -100,8 +126,6 @@ class Trainer:
                 train_dataloader,
                 disable=not self.accelerator.is_main_process,
                 desc=f"Epoch {epoch + 1}/{self.config.epochs} [Train]",
-                position=0,
-                leave=True
             )
 
             for step, batch in enumerate(progress_bar):
@@ -110,28 +134,34 @@ class Trainer:
                     "attention_mask": batch["attention_mask"].to(device),
                     "labels": batch["labels"].to(device),
                 }
-
-                outputs = model(**model_inputs)
-                loss = outputs.loss
+              #梯度累加
+                per_loss=self.compute_loss(model, model_inputs)
+                loss = per_loss/self.config.gradient_accumulation_steps
                 self.accelerator.backward(loss)
-
+                if (step + 1) % self.config.gradient_accumulation_steps == 0:
                 # 梯度裁剪
-                trainable_params = [p for p in model.parameters() if p.requires_grad]
-                self.accelerator.clip_grad_norm_(trainable_params, 1.0)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-                total_loss += loss.item()
-                progress_bar.set_postfix({"loss": loss.item()})
+                    trainable_params = [p for p in model.parameters() if p.requires_grad]
+                    self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad()
+                total_loss += per_loss.item()
+                progress_bar.set_postfix({"loss": per_loss.item()})
 
                 if (step + 1) % 50 == 0:
                     swanlab.log({
-                        "train/loss_step": loss.item(),
-                        "train/lr": scheduler.get_last_lr()[0],
+                        "train/loss_step": per_loss.item(),
+                        "train/lr": self.scheduler.get_last_lr()[0],
                     })
 
-                del loss, outputs
+                del per_loss,loss
                 torch.cuda.empty_cache()
+            if len(train_dataloader)% self.config.gradient_accumulation_steps !=0:
+                 trainable_params = [p for p in model.parameters() if p.requires_grad]
+                 self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
+                 self.optimizer.step()
+                 self.scheduler.step()
+                 self.optimizer.zero_grad()
 
             avg_loss = total_loss / len(train_dataloader)
 
@@ -195,14 +225,10 @@ class Trainer:
                         "labels": batch["labels"].to(device),
                     }
 
-                    outputs = model(**model_inputs)
-                    loss = outputs.loss
+                    loss = self.compute_loss(model, model_inputs)
                     total_loss += loss.item()
                     loss_bar.set_postfix({"loss": loss.item()})
                     swanlab.log({f"{desc}/loss_step": loss.item()}, step=epoch)
-
-                    del outputs
-                    torch.cuda.empty_cache()
 
             avg_loss = total_loss / len(dataLoader)
 
@@ -221,7 +247,7 @@ class Trainer:
                 generated = model.generate(
                     input_ids=batch["prompt_ids"].to(device),
                     attention_mask=batch["prompt_attention_mask"].to(device),
-                    max_new_tokens=128,
+                    max_new_tokens=self.config.max_new_tokens,
                     do_sample=False,
                     pad_token_id=self.tokenizer.eos_token_id
                 )
@@ -275,7 +301,8 @@ class Trainer:
             is_test=True
         )
 
-    def predict_sentence(self, sentence, max_new_tokens=128):
+    def predict_sentence(self, sentence):
+        max_new_tokens=self.config.max_new_tokens
         model = get_trained_model(self.config)
         model = model.to(self.device)
         model.eval()
@@ -325,7 +352,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     config = Load_config(args.config_path)
-    model = get_Model(config)
+    model = load_model(config)
     trainer = Trainer(config, model)
     if args.mode == "train":
         trainer.train()
