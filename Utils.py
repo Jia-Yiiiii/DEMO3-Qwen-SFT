@@ -1,26 +1,34 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, Qwen2ForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training, PeftModel
-from Config import Load_config
 import json
 
 
-def get_Model(config):
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
+def load_model(config):
+    if config.train_mode == 'qlora':
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+    else:
+        quantization_config = None
+
+    model = AutoModelForCausalLM.from_pretrained(
+        config.model_path, dtype=torch.bfloat16,
+        quantization_config=quantization_config,
+        device_map=config.device,
+        trust_remote_code=True
     )
 
-    model = AutoModelForCausalLM.from_pretrained(config.model_path, dtype=torch.bfloat16,
-                                                 quantization_config=quantization_config, device_map=config.device,
-                                                 trust_remote_code=True)
-    footprint = model.get_memory_footprint()
-    model = prepare_model_for_kbit_training(model, gradient_checkpointing_kwargs={
-        "use_reentrant": False})  # 使用不可重入变体(官方最新版的方法)
+    if config.train_mode == 'qlora':
+        model = prepare_model_for_kbit_training(
+            model,
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
-    peft_config = LoraConfig(target_modules=config.target_modules, task_type=TaskType.CAUSAL_LM,
+    peft_config = LoraConfig(target_modules=config.lora_target_modules, task_type=TaskType.CAUSAL_LM,
                              inference_mode=False, r=config.lora_r, lora_alpha=config.lora_alpha,
                              lora_dropout=config.lora_dropout)
     model = get_peft_model(model, peft_config)
@@ -28,25 +36,24 @@ def get_Model(config):
     footprint = model.get_memory_footprint()
     print(f"Memory footprint:")
     print(f"- Bytes: {footprint:,} B")
-    print(f"- MB: {footprint / 1024 ** 2:.2f} MB")
     print(f"- GB: {footprint / 1024 ** 3:.2f} GB")
 
     return model
 
 
 def get_trained_model(config):
-    base_model = AutoModelForCausalLM.from_pretrained(config.model_path, dtype=torch.bfloat16, device_map=config.device,
-                                                      trust_remote_code=True)
+    base_model = AutoModelForCausalLM.from_pretrained(
+        config.model_path,
+        dtype=torch.bfloat16, device_map=config.device,
+        trust_remote_code=True
+    )
 
-    model = PeftModel.from_pretrained(base_model, config.output_dir, )
+    model = PeftModel.from_pretrained(base_model, config.output_dir, device_map=config.device)
 
     return model
 
 
 def get_pred_entities(text):
-    """
-    将模型生成的 JSON 解析为实体列表: [(entity_text, entity_type), ...]
-    """
     if text is None:
         return []
     if not isinstance(text, str):
@@ -59,7 +66,7 @@ def get_pred_entities(text):
         text = "{ " + text + " }"
     try:
         data = json.loads(text)
-    except Exception as e:
+    except Exception :
         return []
     entities = []
     if "entities" not in data:
@@ -67,8 +74,8 @@ def get_pred_entities(text):
     for e in data["entities"]:
         if not isinstance(e, dict):
             continue
-        entity_text = e.get("entity_text", "")
-        entity_type = e.get("entity_type", "")
+        entity_text = e.get("name", "")
+        entity_type = e.get("type", "")
         if entity_text and entity_type:
             entities.append((entity_text, entity_type))
     return entities
@@ -78,7 +85,7 @@ def get_label_entities(text):
     try:
         data = json.loads(text)
         entities = data.get("entities", [])
-        return [(e.get("entity_text", ""), e.get("entity_type", "")) for e in entities]
+        return [(e.get("name", ""), e.get("type", "")) for e in entities]
     except:
         return []
 
