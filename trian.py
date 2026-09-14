@@ -4,41 +4,49 @@ from peft import AutoPeftModelForCausalLM, PeftModel
 from torch.utils.data import DataLoader
 from transformers import get_scheduler
 from dataset import MyDataset
-from Config import Load_config
-from Utils import load_model, get_trained_model
+from config import load_config
+from utils import load_model, get_trained_model
 from tqdm import tqdm
 import swanlab
-from Utils import get_label_entities, get_pred_entities, get_metrics
+from utils import get_label_entities, get_pred_entities, get_metrics
 from accelerate import Accelerator
 from torch.optim import AdamW
 import os
 import argparse
 import bitsandbytes as bnb
 
-#参考HUGGING-FACE的trainer框架
+
+# 参考HUGGING-FACE的trainer框架
 class Trainer:
     def __init__(self, config, model):
         self.model = model
         self.config = config
         self.accelerator = Accelerator(mixed_precision="bf16")
         self.device = self.accelerator.device
-        self.optimizer=None
-        self.scheduler=None
+        self.optimizer = None
+        self.scheduler = None
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_path)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.dev_data = MyDataset.read_data(config.dev_path)
-        self.train_data = MyDataset.read_data(config.train_path)
-        self.test_data = MyDataset.read_data(config.test_path)
-
-        dev_cfg = {"max_len": config.max_length, "data_path": config.dev_path}
-        train_cfg = {"max_len": config.max_length, "data_path": config.train_path}
-        test_cfg = {"max_len": config.max_length, "data_path": config.test_path}
-
-        self.dev_dataset = MyDataset(dev_cfg, self.tokenizer)
-        self.train_dataset = MyDataset(train_cfg, self.tokenizer)
-        self.test_dataset = MyDataset(test_cfg, self.tokenizer)
+        self.dev_dataset = MyDataset(
+            file=config.dev_path,
+            tokenizer=self.tokenizer,
+            max_seq_length=config.max_length,
+            prompt_template=config.prompt,
+        )
+        self.train_dataset = MyDataset(
+            file=config.train_path,
+            tokenizer=self.tokenizer,
+            max_seq_length=config.max_length,
+            prompt_template=config.prompt,
+        )
+        self.test_dataset = MyDataset(
+            file=config.test_path,
+            tokenizer=self.tokenizer,
+            max_seq_length=config.max_length,
+            prompt_template=config.prompt,
+        )
 
         self.dev_dataloader = DataLoader(
             self.dev_dataset,
@@ -65,13 +73,16 @@ class Trainer:
         self.best_f1 = 0.0
         self.patience = getattr(config, 'patience')
         self.counts = 0
+        if getattr(config, 'gradient_checkpointing', False):
+            self.model.gradient_checkpointing_enable()
+            self.model.enable_input_require_grads()
 
-    def create_optimizer_and_scheduler(self,num_training_steps:int)-> None:
+    def create_optimizer_and_scheduler(self, num_training_steps: int) -> None:
         self.create_optimizer()
         self.create_scheduler(num_training_steps=num_training_steps)
 
-    def create_optimizer(self,model=None):
-        if self.config.train_mode=="qlora":
+    def create_optimizer(self, model=None):
+        if self.config.train_mode == "qlora":
             self.optimizer = bnb.optim.AdamW8bit(
                 self.model.parameters(),
                 lr=self.config.learning_rate,
@@ -86,21 +97,19 @@ class Trainer:
             )
         return self.optimizer
 
-
-    def create_scheduler(self,num_trianing_steps,optimizer=None):
+    def create_scheduler(self, num_training_steps, optimizer=None):
         warmup_steps = self.config.warmup_steps  # 或 int(num_training_steps * self.config.warmup_ratio)
         self.scheduler = get_scheduler(
             name="cosine",
             optimizer=self.optimizer,
             num_warmup_steps=warmup_steps,
-            num_training_steps=num_trianing_steps,
+            num_training_steps=num_training_steps,
         )
         return self.scheduler
 
     def compute_loss(self, model, inputs):
-        outputs=model(**inputs)
+        outputs = model(**inputs)
         return outputs.loss
-
 
     def train(self):
         config = self.config
@@ -134,12 +143,12 @@ class Trainer:
                     "attention_mask": batch["attention_mask"].to(device),
                     "labels": batch["labels"].to(device),
                 }
-              #梯度累加
-                per_loss=self.compute_loss(model, model_inputs)
-                loss = per_loss/self.config.gradient_accumulation_steps
+                # 梯度累加
+                per_loss = self.compute_loss(model, model_inputs)
+                loss = per_loss / self.config.gradient_accumulation_steps
                 self.accelerator.backward(loss)
                 if (step + 1) % self.config.gradient_accumulation_steps == 0:
-                # 梯度裁剪
+                    # 梯度裁剪
                     trainable_params = [p for p in model.parameters() if p.requires_grad]
                     self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
                     self.optimizer.step()
@@ -154,14 +163,14 @@ class Trainer:
                         "train/lr": self.scheduler.get_last_lr()[0],
                     })
 
-                del per_loss,loss
-                torch.cuda.empty_cache()
-            if len(train_dataloader)% self.config.gradient_accumulation_steps !=0:
-                 trainable_params = [p for p in model.parameters() if p.requires_grad]
-                 self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
-                 self.optimizer.step()
-                 self.scheduler.step()
-                 self.optimizer.zero_grad()
+                del per_loss, loss
+            torch.cuda.empty_cache()
+            if len(train_dataloader) % self.config.gradient_accumulation_steps != 0:
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
+                self.optimizer.step()
+                self.scheduler.step()
+                self.optimizer.zero_grad()
 
             avg_loss = total_loss / len(train_dataloader)
 
@@ -187,7 +196,6 @@ class Trainer:
                 if self.counts >= self.patience:
                     print(f"Early stopping triggered at epoch {epoch + 1}")
                     break
-
 
         print("Training Finished. Best F1:", self.best_f1)
         swanlab.finish()
@@ -291,7 +299,7 @@ class Trainer:
 
         return avg_loss, f1, precision, recall
 
-    def evaluate_test(self,epoch=None):
+    def evaluate_test(self, epoch=None):
         if epoch is None:
             epoch = self.config.epochs
         _, _, _, _ = self.evaluate(
@@ -302,12 +310,12 @@ class Trainer:
         )
 
     def predict_sentence(self, sentence):
-        max_new_tokens=self.config.max_new_tokens
+        max_new_tokens = self.config.max_new_tokens
         model = get_trained_model(self.config)
         model = model.to(self.device)
         model.eval()
         model.config.use_cache = True
-        prompt = "Extract entities from the following sentences:\n" + sentence + "\n"
+        prompt = self.config.prompt.replace("{sentence}", sentence)
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -326,7 +334,6 @@ class Trainer:
                 do_sample=False,
                 pad_token_id=self.tokenizer.eos_token_id,
             )
-
 
         gen_ids = generated[:, input_ids.shape[1]:]
         pred_text = self.tokenizer.decode(
@@ -351,7 +358,7 @@ if __name__ == "__main__":
         required=True,
     )
     args = parser.parse_args()
-    config = Load_config(args.config_path)
+    config =load_config(args.config_path)
     model = load_model(config)
     trainer = Trainer(config, model)
     if args.mode == "train":
