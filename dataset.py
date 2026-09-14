@@ -4,21 +4,27 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer
 from loguru import logger
 
-#参考Firefly框架
+
+# 参考Firefly框架
 class MyDataset(Dataset):
-    def __init__(self, file, tokenizer, max_seq_length):
+    def __init__(self, file, tokenizer, max_seq_length, prompt_template):
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
+        self.prompt_template = prompt_template
         logger.info('Loading data: {}'.format(file))
         with open(file, 'r', encoding='utf8') as f:
             r_data = json.load(f)
         processed = []
-        for data in  r_data:
+        for data in r_data:
             sentence = data["sentence"]
             ents = data["entities"]
             entities = [{"name": e["name"], "type": e["type"]} for e in ents]
             completion_text = json.dumps({"entities": entities}, ensure_ascii=False)
-            prompt_text = f"Extract entities from the following sentences:\n{sentence}\n"
+            prompt_text = self.prompt_template.replace("{sentence}", sentence)
+            prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+            if len(prompt_ids) >= self.max_seq_length:
+                continue
+
             processed.append({"prompt": prompt_text, "completion": completion_text})
 
         logger.info("There are {} data in dataset".format(len(processed)))
@@ -31,7 +37,7 @@ class MyDataset(Dataset):
         data = self.data_list[idx]
         prompt = data["prompt"]
         completion = data["completion"]
-        #数据格式不需要拼接多轮对话
+        # 数据格式不需要拼接多轮对话
         # 分开编码，避免在后续 Loss 时出错
         prompt_ids = self.tokenizer(prompt, add_special_tokens=False)["input_ids"]
         comp_ids = self.tokenizer(completion, add_special_tokens=False)["input_ids"]
@@ -46,7 +52,6 @@ class MyDataset(Dataset):
         labels = all_ids.copy()
         labels[:num_prompt] = [-100] * num_prompt
         attention_mask = [1] * len(all_ids)
-
 
         return {
             "input_ids": all_ids,
@@ -68,7 +73,6 @@ class MyDataset(Dataset):
         batch_prompt_attention_mask = []
 
         for ids, lab, pids in zip(input_ids_batch, labels_batch, prompt_ids_batch):
-
             pad_len = max_batch_len - len(ids)
             batch_input_ids.append(ids + [self.tokenizer.pad_token_id] * pad_len)
             batch_attention_mask.append([1] * len(ids) + [0] * pad_len)
@@ -84,7 +88,6 @@ class MyDataset(Dataset):
             "prompt_ids": torch.tensor(batch_prompt_ids, dtype=torch.long),
             "prompt_attention_mask": torch.tensor(batch_prompt_attention_mask, dtype=torch.long),
         }
-
 
     def get_loader(self, batch_size=32, shuffle=True):
         return DataLoader(
