@@ -332,23 +332,24 @@ python trian.py --mode eval --config_path ./configs/Qlora-Linear.json
 
 **实验结果**：
 
+<img width="1600" height="302" alt="image" src="https://github.com/user-attachments/assets/212a52be-400b-4c27-bbc2-64b2bac2f264" />
 ![image](https://github.com/user-attachments/assets/90f4f6bc-8894-43b0-9999-bb576d476fc6)
 
-#### Dev 最佳（Epoch 2）
+### Dev 最佳（Step 1）
 
 | 指标 | 值 |
 |------|-----|
-| **Dev Precision** | **0.8523** |
-| **Dev Recall** | **0.7975** |
-| **Dev F1** | **0.824** |
+| **Dev Precision** | **0.8482** |
+| **Dev Recall** | **0.8148** |
+| **Dev F1** | **0.8312** |
 
-#### Test 结果（Step 5）
+### Test 结果（Step 5）
 
 | 指标 | 值 |
 |------|-----|
-| **Test Precision** | **0.8288** |
-| **Test Recall** | **0.7822** |
-| **Test F1** | **0.8048** |
+| **Test Precision** | **0.8391** |
+| **Test Recall** | **0.7993** |
+| **Test F1** | **0.8187** |
 
 **显存**：
 
