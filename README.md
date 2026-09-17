@@ -19,8 +19,8 @@ DEMO3-Qwen-SFT/
 ├── README.md
 ├── config.py
 ├── dataset.py
-├── modeldownloead.py   ← 拼写错
-├── trian.py            ← 拼写错
+├── modeldownloead.py   
+├── trian.py           
 └── utils.py
 
 ```
