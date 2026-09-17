@@ -1,7 +1,13 @@
 # QwenNER — 基于 Qwen 大模型的命名实体识别
+## 项目简介
 
-使用 Qwen2.5-7B-Instruct和Qwen2.5-7B模型，通过 QLoRA / LoRA 在 BC2GM数据集上进行命名实体识别（NER）。
+- **基础模型**：[Qwen/Qwen2.5-7B](https://huggingface.co/Qwen/Qwen2.5-7B)
 
+- **实现模块**：
+  - 使用 PyTorch 和 Hugging Face 生态，独立完成以下模块：
+    - 数据预处理，参考 [Firefly 开源框架](https://github.com/YeungNLP/firefly-train-1.1M)
+    - 模型设计与训练流程，参考 [Hugging Face Trainer](https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py) 的源码
+    - 模型评估（手写）与结果可视化（[SwanLab](https://swanlab.cn/)）
 ## 项目结构
 
 ```
@@ -40,9 +46,12 @@ pip install -r requirements.txt
 python modeldownloead.py
 ```
 
-### 3. 配置训练参数
+### 3. 实验结果
 
-编辑 `args/arg1.json`，完整参数：
+```bash
+运行指令：
+python train.py --mode train --config_path ./configs/Lora-Attention.json
+```
 
 ```json
 {
