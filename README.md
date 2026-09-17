@@ -103,17 +103,106 @@ python train.py --mode train --config_path ./configs/Lora-Attention.json
 ```bash
 python train.py --mode eval --config_path ./configs/Lora-Attention.json
 ```
-#### 使用了LoRA，注入"q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj" 
-实验结果：
+###使用了LoRA，注入 "q_proj","k_proj","v_proj","o_proj"
+## 实验结果
+
+<img width="1593" height="303" alt="image" src="https://github.com/user-attachments/assets/df95fec3-96fc-4636-bd4e-5435786a1e63" />
+
+<img width="1542" height="622" alt="image" src="https://github.com/user-attachments/assets/e574031f-fc83-4504-83b9-019264cdb7d6" />
+
+### Dev 最佳（Epoch 3）
+
 | 指标 | 值 |
 |------|-----|
 | **Precision** | **0.8399** |
 | **Recall** | **0.8261** |
 | **F1** | **0.8329** |
 
+### Test 结果
+
+| 指标 | 值 |
+|------|-----|
+| **Precision** | **0.8192** |
+| **Recall** | **0.8179** |
+| **F1** | **0.8155** |
+
 显存：
 <img width="982" height="476" alt="1879f6d73a69f0bd5ecb4c366713b6e3" src="https://github.com/user-attachments/assets/bce5028d-7281-4001-9675-5969024971d8" />
 
+2.configs/Lora-Linear.json完整参数
+{
+    "train_path": "./data/train.json",
+    "dev_path": "./data/dev.json",
+    "test_path": "./data/test.json",
+    "model_name": "Qwen2.5-7B",
+    "model_path": "./model/Qwen2.5-7B",
+    "batch_size": 4,
+    "patience": 10,
+    "device": "cuda:0",
+    "dropout": 0.1,
+    "weight_decay": 0.01,
+    "epochs": 5,
+    "learning_rate":  2e-5,
+    "cache_dir": "./model",
+    "max_length": 400,
+    "output_dir": "/root/autodl-tmp/lora_weights/all_linear",
+    "trained_save_root_path": "./logs",
+    "lora_r": 16,
+    "prompt": "Extract gene/protein entities. Output JSON:\n{\"entities\": [{\"name\": \"...\", \"type\": \"GENE\"}]}\nSentence: {sentence}\nOutput:",
+    "max_grad_norm": 1,
+    "max_new_tokens": 512,
+    "train_mode":"lora",
+    "lora_alpha": 16,
+    "gradient_checkpointing": true,
+    "gradient_accumulation_steps":1,
+    "warmup_steps": 400,
+    "lora_dropout": 0.05,
+    "lora_target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+    ]
+}
+
+### 训练
+
+```bash
+python train.py --mode train --config_path ./configs/Lora-Linear.json
+```
+
+
+### 验证评估
+
+```bash
+python train.py --mode eval --config_path ./configs/Lora-Linear.json
+```
+使用了LoRA，注入"q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"
+## 实验结果
+<img width="1562" height="631" alt="image" src="https://github.com/user-attachments/assets/52093d74-968e-45e8-ae91-e68a4aeb9e46" />
+
+
+### Dev 最佳（Epoch 3）
+
+| 指标 | 值 |
+|------|-----|
+| **Precision** | **0.8399** |
+| **Recall** | **0.8261** |
+| **F1** | **0.8329** |
+
+### Test 结果
+
+| 指标 | 值 |
+|------|-----|
+| **Precision** | **0.8192** |
+| **Recall** | **0.8179** |
+| **F1** | **0.8155** |
+
+显存：
+<img width="982" height="476" alt="1879f6d73a69f0bd5ecb4c366713b6e3" src="https://github.com/user-attachments/assets/bce5028d-7281-4001-9675-5969024971d8" />
 
 ## 数据集
 
