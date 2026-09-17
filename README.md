@@ -333,9 +333,10 @@ python trian.py --mode eval --config_path ./configs/Qlora-Linear.json
 **实验结果**：
 
 <img width="1600" height="302" alt="image" src="https://github.com/user-attachments/assets/212a52be-400b-4c27-bbc2-64b2bac2f264" />
-![image](https://github.com/user-attachments/assets/90f4f6bc-8894-43b0-9999-bb576d476fc6)
+<img width="1607" height="737" alt="image" src="https://github.com/user-attachments/assets/71c22495-cea1-4316-bca7-401576f6a137" />
 
-### Dev 最佳（Step 1）
+
+### Dev 最佳（Step 5）
 
 | 指标 | 值 |
 |------|-----|
@@ -343,7 +344,7 @@ python trian.py --mode eval --config_path ./configs/Qlora-Linear.json
 | **Dev Recall** | **0.8148** |
 | **Dev F1** | **0.8312** |
 
-### Test 结果（Step 5）
+### Test 结果
 
 | 指标 | 值 |
 |------|-----|
