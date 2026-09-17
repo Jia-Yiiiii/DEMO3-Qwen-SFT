@@ -33,83 +33,87 @@ DEMO3-Qwen-SFT/
 
 
 
-### 1. 环境安装
+### 环境安装
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 下载基础模型
+### 下载基础模型
 
 ```bash
 # 下载 模型
 python modeldownloead.py
 ```
 
-### 3. 实验结果
+### 实验结果
 
 ```bash
-运行指令：
-python train.py --mode train --config_path ./configs/Lora-Attention.json
+1.configs/Lora-Attention.json完整参数
+
 ```
 
 ```json
 {
-    "num_epochs": 5,
-    "batch_size": 4,
-    "lr":2e-05,
-    "weight_decay": 0.01,
-    "device": "cuda:0",
+    "train_path": "./data/train.json",
+    "dev_path": "./data/dev.json",
+    "test_path": "./data/test.json",
     "model_name": "Qwen2.5-7B",
-    "model_dir": "../autodl-tmp/model/Qwen2.5-7B",
-    "dropout_rate": 0.2,
-    "data_path": "./data/",
-    "max_length":400 ,
-    "max_new_tokens": 300,
-    "patience":10,
-    "monitor": "val_f1",
-    "delta":0.0001,
-    "save_dir": "../autodl-tmp/checkpoint/",
-    "warmup_steps": 100,
-    "eps":1e-8,
-    "lora_r": 16,
-    "lora_alpha": 32,
+    "model_path": "./model/Qwen2.5-7B",
+    "batch_size": 2,
+    "patience": 10,
+    "device": "cuda:0",
+    "dropout": 0.1,
+    "weight_decay": 0.01,
+    "epochs": 5,
+    "learning_rate":  5e-5,
+    "cache_dir": "./model",
+    "max_length": 400,
+    "output_dir": "/root/autodl-tmp/lora_weights/attention_only",
+    "trained_save_root_path": "./logs",
+    "lora_r": 8,
+    "prompt": "You are an expert in biomedical named entity recognition. Your task is to identify gene and protein entities from the given English biomedical text. The entity type is defined as follows: GENE includes gene or protein names, such as gene products, enzymes, receptors, antibodies, cytokines, and similar molecules. Please strictly output the results in the following JSON format: {{\"entities\": [{{\"name\": \"entity name\", \"type\": \"entity type\"}}]}}. You must output only a valid JSON string with no additional content. Only use the predefined entity type \"GENE\"; do not recognize or include any other entity types. Only extract entities that clearly belong to the GENE category as defined, and do not include any reasoning or explanations—just the JSON output.\nSentence: {sentence}\nOutput:",
+    "max_grad_norm": 0.5,
+    "max_new_tokens":  256,
+    "train_mode":"lora",
+    "lora_alpha": 16,
+    "gradient_checkpointing": true,
+    "gradient_accumulation_steps":8,
+    "warmup_steps": 200,
     "lora_dropout": 0.05,
-    "method": "lora",
-    "lora_target_modules": [ 
+    "lora_target_modules": [
         "q_proj",
         "k_proj",
         "v_proj",
-        "o_proj",
-        "gate_proj",
-        "up_proj",
-        "down_proj"],
-    "prompt": "You are an expert in biomedical named entity recognition. Your task is to identify gene and protein entities from the given English biomedical text. The entity type is defined as follows: GENE includes gene or protein names, such as gene products, enzymes, receptors, antibodies, cytokines, and similar molecules. Please strictly output the results in the following JSON format: {\"entities\": [{\"name\": \"entity name\", \"type\": \"entity type\"}]}. You must output only a valid JSON string with no additional content. Only use the predefined entity type \"GENE\"; do not recognize or include any other entity types. Only extract entities that clearly belong to the GENE category as defined, and do not include any reasoning or explanations—just the JSON output. The input sentence is provided below.",
-    "template_name": "qwen"
+        "o_proj"
+    ]
 }
+
 ```
 
-### 4. 训练
+### 训练
 
 ```bash
-python trainer.py --arg ./args/arg1.json
+python train.py --mode train --config_path ./configs/Lora-Attention.json
 ```
 
 
-### 5. 推理
+### 验证评估
 
 ```bash
-python predict.py \
-    --arg ./args/arg1.json \
-    --weight ./checkpoint/exp1/ \
-    --text "Using the same approach we have shown that hFIRE binds the stimulatory proteins Sp1 and Sp3 in addition to CBF"
+python train.py --mode eval --config_path ./configs/Lora-Attention.json
 ```
+#### 使用了LoRA，注入"q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj" 
+实验结果：
+| 指标 | 值 |
+|------|-----|
+| **Precision** | **0.8399** |
+| **Recall** | **0.8261** |
+| **F1** | **0.8329** |
 
-输出示例：
+显存：
+<img width="982" height="476" alt="1879f6d73a69f0bd5ecb4c366713b6e3" src="https://github.com/user-attachments/assets/bce5028d-7281-4001-9675-5969024971d8" />
 
-```json
-[{"entities": [{"name": "hFIRE", "type": "GENE"}, {"name": "Sp1", "type": "GENE"}, {"name": "Sp3", "type": "GENE"}, {"name": "CBF", "type": "GENE"}]}]
-```
 
 ## 数据集
 
