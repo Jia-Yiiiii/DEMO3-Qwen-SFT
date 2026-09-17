@@ -5,12 +5,13 @@ from transformers import AutoTokenizer
 from loguru import logger
 
 
-# 参考Firefly框架
+
 class MyDataset(Dataset):
-    def __init__(self, file, tokenizer, max_seq_length, prompt_template):
+    def __init__(self, file, tokenizer, max_seq_length, prompt_template,is_train=True):
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
         self.prompt_template = prompt_template
+        self.is_train=is_train
         logger.info('Loading data: {}'.format(file))
         with open(file, 'r', encoding='utf8') as f:
             r_data = json.load(f)
@@ -74,12 +75,22 @@ class MyDataset(Dataset):
 
         for ids, lab, pids in zip(input_ids_batch, labels_batch, prompt_ids_batch):
             pad_len = max_batch_len - len(ids)
-            batch_input_ids.append(ids + [self.tokenizer.pad_token_id] * pad_len)
-            batch_attention_mask.append([1] * len(ids) + [0] * pad_len)
-            batch_labels.append(lab + [-100] * pad_len)
             pad_prompt_len = max_prompt_len - len(pids)
-            batch_prompt_ids.append(pids + [self.tokenizer.pad_token_id] * pad_prompt_len)
-            batch_prompt_attention_mask.append([1] * len(pids) + [0] * pad_prompt_len)
+
+            if self.is_train:
+            
+                batch_input_ids.append(ids + [self.tokenizer.pad_token_id] * pad_len)
+                batch_attention_mask.append([1] * len(ids) + [0] * pad_len)
+                batch_labels.append(lab + [-100] * pad_len)
+                batch_prompt_ids.append(pids + [self.tokenizer.pad_token_id] * pad_prompt_len)
+                batch_prompt_attention_mask.append([1] * len(pids) + [0] * pad_prompt_len)
+            else:
+                
+                batch_input_ids.append([self.tokenizer.pad_token_id] * pad_len + ids)
+                batch_attention_mask.append([0] * pad_len + [1] * len(ids))
+                batch_labels.append([-100] * pad_len + lab)
+                batch_prompt_ids.append([self.tokenizer.pad_token_id] * pad_prompt_len + pids)
+                batch_prompt_attention_mask.append([0] * pad_prompt_len + [1] * len(pids))
 
         return {
             "input_ids": torch.tensor(batch_input_ids, dtype=torch.long),
