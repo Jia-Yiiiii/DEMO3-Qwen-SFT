@@ -37,7 +37,7 @@ pip install -r requirements.txt
 
 ```bash
 # 下载 模型
-hf download Qwen/Qwen2.5-7B --local-dir ./Qwen2.5-7B
+python modeldownloead.py
 ```
 
 ### 3. 配置训练参数
