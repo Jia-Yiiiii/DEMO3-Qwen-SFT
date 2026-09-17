@@ -1,5 +1,5 @@
 # QwenNER — 基于 Qwen 大模型的命名实体识别
-
+本项目基于Qwen2.5-7B 模型，实现对bc2gm数据集中的实体抽取任务，理解指令微调的过程与原理
 ## 项目简介
 
 - **基础模型**：[Qwen/Qwen2.5-7B](https://huggingface.co/Qwen/Qwen2.5-7B)
@@ -8,7 +8,7 @@
   - 使用 PyTorch 和 Hugging Face 生态，独立完成以下模块：
     - 数据预处理，参考 [Firefly 开源框架](https://github.com/YeungNLP/firefly-train-1.1M)
     - 模型设计与训练流程，参考 [Hugging Face Trainer](https://github.com/huggingface/transformers/blob/main/src/transformers/trainer.py) 的源码
-    - 模型评估（手写）与结果可视化（[SwanLab](https://swanlab.cn/)）
+    - 模型评估（手写）与结果可视化（[SwanLab]）
 
 ## 项目结构
 
