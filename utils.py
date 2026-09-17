@@ -25,13 +25,15 @@ def load_model(config):
     if config.train_mode == 'qlora':
         model = prepare_model_for_kbit_training(
             model,
-            gradient_checkpointing_kwargs={"use_reentrant": False}
+
         )
 
     peft_config = LoraConfig(target_modules=config.lora_target_modules, task_type=TaskType.CAUSAL_LM,
                              inference_mode=False, r=config.lora_r, lora_alpha=config.lora_alpha,
                              lora_dropout=config.lora_dropout)
     model = get_peft_model(model, peft_config)
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.enable_input_require_grads()
     model.print_trainable_parameters()
     footprint = model.get_memory_footprint()
     print(f"Memory footprint:")
