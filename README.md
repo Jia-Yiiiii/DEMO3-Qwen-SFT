@@ -190,7 +190,7 @@ python trian.py --mode eval --config_path ./configs/Lora-Linear.json
 | **Dev Recall** | **0.8441** |
 | **Dev F1** | **0.8414** |
 
-#### Test 结果（Step 5）
+#### Test 结果
 
 | 指标 | 值 |
 |------|-----|
@@ -267,7 +267,7 @@ python trian.py --mode eval --config_path ./configs/Qlora-Attention.json
 | **Dev Recall** | **0.7975** |
 | **Dev F1** | **0.824** |
 
-#### Test 结果（Step 5）
+#### Test 结果
 
 | 指标 | 值 |
 |------|-----|
