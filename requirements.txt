@@ -1,11 +1,16 @@
-torch==2.12.1
-torchvision==0.27.1
-transformers==5.17.0
-peft==0.20.0
-bitsandbytes==0.50.2
+--index-url https://pypi.org/simple/
+--extra-index-url https://download.pytorch.org/whl/cu130
+
 accelerate==1.15.0
+bitsandbytes==0.50.2
+huggingface_hub==0.36.2
+loguru==0.7.3
 modelscope==1.40.0
 modelscope-hub==0.4.2
+numpy==2.5.1
+pandas==3.0.3
+peft==0.20.0
 swanlab==0.10.0
-loguru==0.7.3
+torch==2.12.1+cu130
 tqdm==4.66.2
+transformers==5.17.0
