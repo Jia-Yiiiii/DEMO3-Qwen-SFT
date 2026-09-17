@@ -5,22 +5,23 @@
 ## 项目结构
 
 ```
-QwenNER/
-├── data/                  # 数据集
-│   ├── train.json         # 训练集 
-│   ├── dev.json           # 验证集 
-│   ├── test.json          # 测试集 
-│   └── labels.json        # 实体类别
-├── args/                  # 训练配置文件
-│   ├── arg1.json          
-├── model.py               # 模型定义 (Qwen4NER 类)
-├── trainer.py             # 训练主入口 + Trainer 类
-├── MyDataset.py           # 数据集与 collate 函数
-├── utils.py               # 工具: Arguments, Metrics, EarlyStop
-├── predict.py             # 推理脚本
-├── analysis.py            # 序列长度分布分析
-├── template.py            # Qwen 对话模板定义
-├── requirements.txt       # 依赖列表
+DEMO3-Qwen-SFT/
+├── configs/
+│   ├── Lora-Attention.json
+│   ├── Lora-Linear.json
+│   ├── Qlora-Attention.json
+│   └── Qlora-Linear.json
+├── data/
+│   ├── dev.json
+│   ├── labels.json
+│   ├── test.json
+│   └── train.json
+├── README.md
+├── config.py
+├── dataset.py
+├── modeldownloead.py   ← 拼写错
+├── trian.py            ← 拼写错
+└── utils.py
 
 ```
 
