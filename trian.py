@@ -16,7 +16,6 @@ import argparse
 import bitsandbytes as bnb
 
 
-# 参考HUGGING-FACE的trainer框架
 class Trainer:
     def __init__(self, config, model):
         self.model = model
@@ -29,42 +28,45 @@ class Trainer:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.dev_dataset = MyDataset(
-            file=config.dev_path,
-            tokenizer=self.tokenizer,
-            max_seq_length=config.max_length,
-            prompt_template=config.prompt,
-        )
         self.train_dataset = MyDataset(
             file=config.train_path,
             tokenizer=self.tokenizer,
             max_seq_length=config.max_length,
             prompt_template=config.prompt,
+            is_train=True,
+        )
+        self.dev_dataset = MyDataset(
+            file=config.dev_path,
+            tokenizer=self.tokenizer,
+            max_seq_length=config.max_length,
+            prompt_template=config.prompt,
+            is_train=False,
         )
         self.test_dataset = MyDataset(
             file=config.test_path,
             tokenizer=self.tokenizer,
             max_seq_length=config.max_length,
             prompt_template=config.prompt,
+            is_train=False,
         )
 
         self.dev_dataloader = DataLoader(
             self.dev_dataset,
-            batch_size=config.batch_size,
+            batch_size=config.batch_size*4,
             shuffle=False,
             collate_fn=self.dev_dataset.collate_fn
         )
 
         self.train_dataloader = DataLoader(
             self.train_dataset,
-            batch_size=config.batch_size,
+            batch_size=config.batch_size ,
             shuffle=True,
             collate_fn=self.train_dataset.collate_fn
         )
 
         self.test_dataloader = DataLoader(
             self.test_dataset,
-            batch_size=config.batch_size,
+            batch_size=config.batch_size*4,
             shuffle=False,
             collate_fn=self.test_dataset.collate_fn
         )
@@ -98,7 +100,7 @@ class Trainer:
         return self.optimizer
 
     def create_scheduler(self, num_training_steps, optimizer=None):
-        warmup_steps = self.config.warmup_steps  # 或 int(num_training_steps * self.config.warmup_ratio)
+        warmup_steps = self.config.warmup_steps  
         self.scheduler = get_scheduler(
             name="cosine",
             optimizer=self.optimizer,
@@ -107,9 +109,10 @@ class Trainer:
         )
         return self.scheduler
 
-    def compute_loss(self, model, inputs):
-        outputs = model(**inputs)
-        return outputs.loss
+    def compute_loss(self, model, input_ids, attention_mask, labels):
+        loss = model(input_ids, attention_mask, labels=labels,return_dict=False)[0]
+        
+        return loss
 
     def train(self):
         config = self.config
@@ -130,13 +133,13 @@ class Trainer:
             model.train()
             total_loss = 0.0
             model.config.use_cache = False
-
+            torch.cuda.empty_cache()
             progress_bar = tqdm(
                 train_dataloader,
                 disable=not self.accelerator.is_main_process,
                 desc=f"Epoch {epoch + 1}/{self.config.epochs} [Train]",
             )
-
+            trainable_params = [p for p in model.parameters() if p.requires_grad]
             for step, batch in enumerate(progress_bar):
                 model_inputs = {
                     "input_ids": batch["input_ids"].to(device),
@@ -144,12 +147,18 @@ class Trainer:
                     "labels": batch["labels"].to(device),
                 }
                 # 梯度累加
-                per_loss = self.compute_loss(model, model_inputs)
+                per_loss = self.compute_loss(model, model_inputs["input_ids"], model_inputs["attention_mask"], model_inputs["labels"])
+                del batch["input_ids"]
+                del batch["attention_mask"]
+                del batch["labels"]
+
+
                 loss = per_loss / self.config.gradient_accumulation_steps
                 self.accelerator.backward(loss)
+                
                 if (step + 1) % self.config.gradient_accumulation_steps == 0:
                     # 梯度裁剪
-                    trainable_params = [p for p in model.parameters() if p.requires_grad]
+                    
                     self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
                     self.optimizer.step()
                     self.scheduler.step()
@@ -164,7 +173,7 @@ class Trainer:
                     })
 
                 del per_loss, loss
-            torch.cuda.empty_cache()
+            
             if len(train_dataloader) % self.config.gradient_accumulation_steps != 0:
                 trainable_params = [p for p in model.parameters() if p.requires_grad]
                 self.accelerator.clip_grad_norm_(trainable_params, self.config.max_grad_norm)
@@ -216,34 +225,8 @@ class Trainer:
         model.eval()
         model.config.use_cache = True
 
-        avg_loss = None
-        if not is_test:
-            total_loss = 0.0
-            with torch.no_grad():
-                loss_bar = tqdm(
-                    dataLoader,
-                    desc=f"Epoch {epoch + 1}/{config.epochs} [{desc} Loss]",
-                    position=0,
-                    leave=True
-                )
-                for batch in loss_bar:
-                    model_inputs = {
-                        "input_ids": batch["input_ids"].to(device),
-                        "attention_mask": batch["attention_mask"].to(device),
-                        "labels": batch["labels"].to(device),
-                    }
-
-                    loss = self.compute_loss(model, model_inputs)
-                    total_loss += loss.item()
-                    loss_bar.set_postfix({"loss": loss.item()})
-                    swanlab.log({f"{desc}/loss_step": loss.item()}, step=epoch)
-
-            avg_loss = total_loss / len(dataLoader)
-
         all_preds = []
         all_labels = []
-        self.tokenizer.padding_side = "left"
-
         with torch.no_grad():
             gen_bar = tqdm(
                 dataLoader,
@@ -267,14 +250,13 @@ class Trainer:
                 labels_ids = batch["labels"].clone()
                 labels_ids[labels_ids == -100] = self.tokenizer.pad_token_id
                 gold_texts = self.tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
-
+                del labels_ids
+                
+                del batch["prompt_ids"]
+                del batch["prompt_attention_mask"]
                 for pred, gold in zip(pred_texts, gold_texts):
-                    pred_entities = get_pred_entities(pred)
-                    gold_entities = get_label_entities(gold)
-                    all_preds.append(pred_entities)
-                    all_labels.append(gold_entities)
-
-        self.tokenizer.padding_side = "right"
+                    all_preds.append(get_pred_entities(pred))
+                    all_labels.append(get_label_entities(gold))
 
         metrics = get_metrics(all_preds, all_labels)
         precision = metrics["precision"]
@@ -282,22 +264,19 @@ class Trainer:
         f1 = metrics["f1"]
 
         if not is_test:
-            print(
-                f"[{desc}] Epoch {epoch + 1} | Loss: {avg_loss:.4f} | F1: {f1:.4f} | P: {precision:.4f} | R: {recall:.4f}")
+            print(f"[{desc}] Epoch {epoch + 1} | F1: {f1:.4f} | P: {precision:.4f} | R: {recall:.4f}")
         else:
             print(f"[{desc}] F1: {f1:.4f} | P: {precision:.4f} | R: {recall:.4f}")
 
         log_dict = {
-            f"{desc}/precision": precision,
-            f"{desc}/recall": recall,
-            f"{desc}/f1": f1,
-        }
-        if not is_test:
-            log_dict[f"{desc}/loss_epoch"] = avg_loss
+                f"{desc}/precision": precision,
+                f"{desc}/recall": recall,
+                f"{desc}/f1": f1,
+            }
 
         swanlab.log(log_dict, step=epoch)
 
-        return avg_loss, f1, precision, recall
+        return None, f1, precision, recall
 
     def evaluate_test(self, epoch=None):
         if epoch is None:
@@ -349,7 +328,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_path",
         type=str,
-        default="./Configs/Lora-Attention.json",
     )
     parser.add_argument(
         "--mode",
@@ -364,8 +342,9 @@ if __name__ == "__main__":
     if args.mode == "train":
         trainer.train()
     elif args.mode == "eval":
+        swanlab.init(
+            project="Qwen-NER-SFT",
+            config=vars(config)
+        )
         trainer.evaluate_test()
-    elif args.mode == "predict":
-        text = input("请输入语句: ")
-        result = trainer.predict_sentence(sentence=text)
-        print(result)
+        swanlab.finish()
