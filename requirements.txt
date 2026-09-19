@@ -1,16 +1,16 @@
 --index-url https://pypi.org/simple/
 --extra-index-url https://download.pytorch.org/whl/cu130
-
 accelerate==1.15.0
 bitsandbytes==0.50.2
-huggingface_hub==0.36.2
+huggingface_hub==1.31.0
 loguru==0.7.3
 modelscope==1.40.0
 modelscope-hub==0.4.2
-numpy==2.5.1
-pandas==3.0.3
+numpy==2.4.6
 peft==0.20.0
+safetensors==0.8.0
 swanlab==0.10.0
-torch==2.12.1+cu130
+tokenizers==0.23.2
+torch @ https://download-r2.pytorch.org/whl/cu130/torch-2.12.1%2Bcu130-cp312-cp312-manylinux_2_28_x86_64.whl#sha256=4bafc356fbb622e2756179406825c3a56c17b401196435a1487c5b40c657706c
 tqdm==4.66.2
 transformers==5.17.0
