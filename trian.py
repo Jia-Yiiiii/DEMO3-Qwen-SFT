@@ -207,6 +207,11 @@ class Trainer:
                     break
 
         print("Training Finished. Best F1:", self.best_f1)
+        self.model = None
+        torch.cuda.empty_cache()
+        # Use the model with the best dev F1 (saved to config.output_dir) for testing
+        print("Testing with the best dev model...")
+        self.evaluate_test()
         swanlab.finish()
 
     def evaluate(self, epoch, model, dataLoader=None, is_test=False):
@@ -218,12 +223,8 @@ class Trainer:
 
         desc = "Test" if is_test else "Dev"
 
-        if is_test:
-            model = get_trained_model(config)
-            model = model.to(device)
-
         model.eval()
-        model.config.use_cache = True
+        model.config.use_cache = False
 
         all_preds = []
         all_labels = []
@@ -281,12 +282,15 @@ class Trainer:
     def evaluate_test(self, epoch=None):
         if epoch is None:
             epoch = self.config.epochs
+        model = get_trained_model(self.config)
+        model = model.to(self.device)
         _, _, _, _ = self.evaluate(
             epoch=epoch,
-            model=None,
+            model=model,
             dataLoader=self.test_dataloader,
             is_test=True
-        )
+    )
+
 
     def predict_sentence(self, sentence):
         max_new_tokens = self.config.max_new_tokens
