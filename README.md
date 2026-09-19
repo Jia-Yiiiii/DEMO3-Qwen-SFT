@@ -52,17 +52,18 @@ python modeldownloead.py
 
 ```json
 {
+   {
     "train_path": "./data/train.json",
     "dev_path": "./data/dev.json",
     "test_path": "./data/test.json",
     "model_name": "Qwen2.5-7B",
     "model_path": "./model/Qwen2.5-7B",
-    "batch_size": 4,
-    "patience": 10,
+    "batch_size": 2,
+    "patience": 3,
     "device": "cuda:0",
     "dropout": 0.1,
     "weight_decay": 0.01,
-    "epochs": 5,
+    "epochs": 4,
     "learning_rate": 2e-5,
     "cache_dir": "./model",
     "max_length": 400,
@@ -75,10 +76,11 @@ python modeldownloead.py
     "train_mode": "lora",
     "lora_alpha": 16,
     "gradient_checkpointing": true,
-    "gradient_accumulation_steps": 1,
+    "gradient_accumulation_steps": 2,
     "warmup_steps": 400,
     "lora_dropout": 0.05,
     "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+}
 }
 ```
 
@@ -88,19 +90,12 @@ python modeldownloead.py
 python trian.py --mode train --config_path ./configs/Lora-Linear.json
 ```
 
-**评估**：
-
-```bash
-python trian.py --mode eval --config_path ./configs/Lora-Linear.json
-```
-
 **注入模块**：LoRA，`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`
 
 **实验结果**：
 
-![image](https://github.com/user-attachments/assets/5c321e0f-e1f3-4d80-bea4-7c1d86cfc799)
-
-![image](https://github.com/user-attachments/assets/52093d74-968e-45e8-ae91-e68a4aeb9e46)
+<img width="1606" height="316" alt="image" src="https://github.com/user-attachments/assets/d555c13c-e9e8-412e-ba45-468c9cc0f81c" />
+<img width="1591" height="663" alt="image" src="https://github.com/user-attachments/assets/9b3a1a9c-ff31-47b0-b84c-ce5a6989519a" />
 
 #### Dev 最佳（Epoch 2）
 
@@ -118,9 +113,10 @@ python trian.py --mode eval --config_path ./configs/Lora-Linear.json
 | **Test Recall** | **0.8312** |
 | **Test F1** | **0.8257** |
 
-**显存**：
+**训练时显存**：
 
-![image](https://github.com/user-attachments/assets/bcbb5940-1cdf-4f3e-bfe6-191efa34d44b)
+
+
 
 ---
 ---
