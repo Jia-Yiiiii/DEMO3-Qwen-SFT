@@ -97,25 +97,14 @@ python trian.py --mode train --config_path ./configs/Lora-Linear.json
 <img width="1606" height="316" alt="image" src="https://github.com/user-attachments/assets/d555c13c-e9e8-412e-ba45-468c9cc0f81c" />
 <img width="1591" height="663" alt="image" src="https://github.com/user-attachments/assets/9b3a1a9c-ff31-47b0-b84c-ce5a6989519a" />
 
-#### Dev 最佳（Epoch 2）
+| 实验 | Precision (查准率) | Recall (召回率) | F1-Score (F1分数) |
+| :--- | :---: | :---: | :---: |
+| Dev (LoRA) | 0.8303 | 0.8369 | 0.8386 |
+| Test（LoRA） | 0.8189 | 0.8215 | 0.8202 |
 
-| 指标 | 值 |
-|------|-----|
-| **Dev Precision** | **0.8387** |
-| **Dev Recall** | **0.8441** |
-| **Dev F1** | **0.8414** |
-
-#### Test 结果
-
-| 指标 | 值 |
-|------|-----|
-| **Test Precision** | **0.8203** |
-| **Test Recall** | **0.8312** |
-| **Test F1** | **0.8257** |
 
 **训练时显存**：
-
-
+<img width="943" height="515" alt="ac26a535fb728531fc665bbfddcb265b" src="https://github.com/user-attachments/assets/026b0cd1-002b-4185-8a29-8cdf28360852" />
 
 
 ---
@@ -127,7 +116,6 @@ python trian.py --mode train --config_path ./configs/Lora-Linear.json
 
 ```json
 {
-    
     "train_path": "./data/train.json",
     "dev_path": "./data/dev.json",
     "test_path": "./data/test.json",
@@ -137,7 +125,7 @@ python trian.py --mode train --config_path ./configs/Lora-Linear.json
     "patience": 5,
     "device": "cuda:0",
     "weight_decay": 0.01,
-    "epochs": 8,
+    "epochs": 5,
     "learning_rate": 1e-4,
     "cache_dir": "./model",
     "max_length": 512,
@@ -154,7 +142,6 @@ python trian.py --mode train --config_path ./configs/Lora-Linear.json
     "warmup_steps": 500,
     "lora_dropout": 0.05,
     "lora_target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-
 }
 ```
 
@@ -167,16 +154,19 @@ python trian.py --mode train --config_path ./configs/Qlora-Linear.json
 **注入模块**：QLoRA，`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`
 
 **实验结果**：
-<img width="1576" height="637" alt="image" src="https://github.com/user-attachments/assets/bfd5bf23-5899-4fc2-88e1-c94b3c021602" />
-<img width="1583" height="292" alt="image" src="https://github.com/user-attachments/assets/5b42c358-43d9-4ce7-a778-465654c5cf4e" />
+<img width="1578" height="643" alt="image" src="https://github.com/user-attachments/assets/11d73f9d-d1ee-4752-8b77-67ccb773122f" />
+<img width="1587" height="327" alt="image" src="https://github.com/user-attachments/assets/58ec58ce-edc6-41f6-a4cd-e0d698f6b959" />
 
 
-### | 测试指标 | Precision (查准率) | Recall (召回率) | F1-Score (F1分数) |
+
+| 实验 | Precision (查准率) | Recall (召回率) | F1-Score (F1分数) |
 | :--- | :---: | :---: | :---: |
-| Test | 0.8465 | 0.8055 | 0.8255 |
-| Dev (Epoch 2) | 0.8487 | 0.8092 | 0.8285 |
+| Dev (QLoRA) | 0.8440 | 0.8192 | 0.8314 |
+| Test（QLoRA） | 0.8346 | 0.7950 | 0.8143 |
 
 
-**显存**：
-<img width="777" height="315" alt="image" src="https://github.com/user-attachments/assets/7a594a28-909b-470b-8587-284cf02f12c2" />
+
+**训练时显存**：
+<img width="952" height="491" alt="c7b70ca93d0898375799c2def15e3af0" src="https://github.com/user-attachments/assets/5ff730d6-0eb4-4f2f-8980-c7a68fd74a35" />
+
 
