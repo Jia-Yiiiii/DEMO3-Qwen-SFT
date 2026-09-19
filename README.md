@@ -33,7 +33,7 @@ DEMO3-Qwen-SFT/
 ## 环境安装
 
 ```bash
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 
 ## 下载基础模型
